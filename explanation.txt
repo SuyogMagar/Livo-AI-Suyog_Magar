@@ -1,0 +1,62 @@
+========================================================================
+                      LIVO AI SWE ASSESSMENT
+========================================================================
+
+1. WHAT IS IT?
+--------------
+We are building a web application where users can upload a short audio clip 
+(30 to 45 seconds) of themselves speaking English. 
+The app will analyze their speech and show them:
+- An overall pronunciation score (e.g., 85%).
+- A word-by-word highlight of their pronunciation, pointing out exactly 
+  which words were mispronounced, unclear, or paused too long.
+- Helpful suggestions on how they can improve.
+
+It must be deployed to a live public URL and follow India's DPDP Act 
+(Digital Personal Data Protection Act 2023) for handling user privacy.
+
+
+2. WHAT TECH ARE WE USING?
+--------------------------
+- **Frontend & Backend**: Next.js (React) + Tailwind CSS (or Vanilla CSS).
+  - Why? Next.js lets us build both a beautiful frontend and a secure 
+    backend API in one project. It is extremely easy to deploy to Vercel.
+- **AI Engine (Pronunciation Scoring)**: Google Gemini API (1.5 Flash/Pro) or Whisper.
+  - Why? Gemini natively accepts audio files directly! We can send the 
+    audio to Gemini and ask it to:
+    1. Transcribe the speech.
+    2. Analyze the pronunciation, tone, and clarity.
+    3. Return a clean JSON response with the score, list of mistakes, 
+       and word-level feedback.
+  - This avoids having to manage complex machine learning servers.
+- **Deployment**: Vercel (free, fast, and secure).
+
+
+3. HOW DO WE MAKE IT?
+---------------------
+- **Step 1: Setup the Project**
+  Initialize a Next.js project with Tailwind CSS.
+
+- **Step 2: Create the User Interface**
+  Build a clean, premium dashboard where users can either drag-and-drop 
+  an audio file or record it live using their microphone. We will add a 
+  timer to enforce the 30-45 seconds limit.
+
+- **Step 3: Build the API Backend**
+  Create an endpoint that receives the audio file, validates its length, 
+  sends it to the Gemini API for analysis, and gets back a structured 
+  JSON response.
+
+- **Step 4: Display Results**
+  Render the score using an interactive gauge, and highlight the transcribed 
+  words (e.g., Green for correct, Red for mispronounced, Yellow for unclear).
+
+- **Step 5: Add DPDP Compliance**
+  Include a consent checkbox before uploading, process data in memory without 
+  saving the audio permanently, or delete it immediately after scoring. Add 
+  a simple privacy policy banner.
+
+- **Step 6: Deploy & Document**
+  Push to GitHub, deploy to Vercel, and write a clean 1-page architecture 
+  document detailing the flow and DPDP compliance.
+========================================================================
