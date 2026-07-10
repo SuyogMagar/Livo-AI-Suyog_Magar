@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { animate, createTimeline, stagger } from "animejs";
-import { FileAudio, Mic, Square, Upload, Loader2, Info } from "lucide-react";
+import { FileAudio, Mic, Square, Upload, Loader2, Info, AlertCircle } from "lucide-react";
 import { toast } from "sonner";
 import { createServerFn } from "@tanstack/react-start";
 
@@ -18,6 +18,7 @@ export interface AnalysisResult {
     status: "ok" | "warn" | "bad";
   }>;
   feedback: string;
+  engine?: "cloud" | "local";
 }
 
 // Define the server function that receives the audio file and consent confirmation
@@ -25,24 +26,25 @@ export const analyzeAudioFn = createServerFn({ method: "POST" })
   .validator((formData: FormData) => {
     const audio = formData.get("audio");
     const consent = formData.get("consent");
+    const clientTranscript = formData.get("clientTranscript");
     if (!(audio instanceof File)) {
       throw new Error("No audio recording provided.");
     }
     if (consent !== "true") {
       throw new Error("Consent to temporarily process voice data is required under the DPDP Act.");
     }
-    return { audio, consent };
+    return { audio, consent, clientTranscript: clientTranscript?.toString() };
   })
   .handler(async ({ data }) => {
     try {
-      const { audio } = data;
+      const { audio, clientTranscript } = data;
       const arrayBuffer = await audio.arrayBuffer();
       const buffer = Buffer.from(arrayBuffer);
       const base64Audio = buffer.toString("base64");
 
       // Dynamic import to prevent bundler trying to parse node modules on client bundle
       const { analyzeAudio } = await import("../lib/analyze");
-      const result = await analyzeAudio(base64Audio, audio.type || "audio/webm");
+      const result = await analyzeAudio(base64Audio, audio.type || "audio/webm", clientTranscript);
       return { success: true, data: result };
     } catch (err: any) {
       console.error("Error in server handler analyzeAudioFn:", err);
@@ -77,10 +79,25 @@ function SpeechHub() {
   const [analyzing, setAnalyzing] = useState(false);
   const [report, setReport] = useState<AnalysisResult | null>(null);
   const [selectedWord, setSelectedWord] = useState<{ text: string; status: WordStatus; index: number } | null>(null);
+  const [clientTranscript, setClientTranscript] = useState("");
+  const [browserWarning, setBrowserWarning] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+      if (!SpeechRecognition) {
+        setBrowserWarning("Speech Recognition is not supported by your browser (e.g. Firefox). Please use Google Chrome, Safari, or Microsoft Edge for live audio analysis.");
+      } else if (window.location.protocol !== "https:" && window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1") {
+        setBrowserWarning("Browser blocks Speech Recognition on unsecured HTTP connections. Please access the application via http://localhost:8080/.");
+      }
+    }
+  }, []);
 
   const timerRef = useRef<number | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
+  const clientTranscriptRef = useRef("");
+  const speechRecognitionRef = useRef<any>(null);
 
   const scoreRef = useRef<HTMLSpanElement>(null);
   const barsRef = useRef<HTMLDivElement>(null);
@@ -140,6 +157,40 @@ function SpeechHub() {
       mediaRecorderRef.current = mediaRecorder;
       audioChunksRef.current = [];
 
+      setClientTranscript("");
+      clientTranscriptRef.current = "";
+
+      // Initialize Web Speech API Speech Recognition
+      const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+      if (SpeechRecognition) {
+        const recognition = new SpeechRecognition();
+        recognition.continuous = true;
+        recognition.interimResults = true;
+        recognition.lang = "en-US";
+        
+        let finalTranscript = "";
+        recognition.onresult = (event: any) => {
+          let interimTranscript = "";
+          for (let i = event.resultIndex; i < event.results.length; ++i) {
+            if (event.results[i].isFinal) {
+              finalTranscript += event.results[i][0].transcript + " ";
+            } else {
+              interimTranscript += event.results[i][0].transcript;
+            }
+          }
+          const fullText = (finalTranscript + interimTranscript).trim();
+          setClientTranscript(fullText);
+          clientTranscriptRef.current = fullText;
+        };
+        
+        recognition.onerror = (event: any) => {
+          console.error("Speech recognition error:", event.error);
+        };
+        
+        speechRecognitionRef.current = recognition;
+        recognition.start();
+      }
+
       mediaRecorder.ondataavailable = (event) => {
         if (event.data.size > 0) {
           audioChunksRef.current.push(event.data);
@@ -150,7 +201,7 @@ function SpeechHub() {
         const mimeType = mediaRecorder.mimeType || "audio/webm";
         const blob = new Blob(audioChunksRef.current, { type: mimeType });
         const file = new File([blob], "recording.webm", { type: mimeType });
-        triggerAnalysis(file);
+        triggerAnalysis(file, clientTranscriptRef.current);
       };
 
       setHasReport(false);
@@ -172,6 +223,14 @@ function SpeechHub() {
     if (seconds < 10) {
       toast.error(`Audio must be at least 10 seconds. Current duration: ${seconds}s.`);
       return;
+    }
+
+    if (speechRecognitionRef.current) {
+      try {
+        speechRecognitionRef.current.stop();
+      } catch (e) {
+        console.error("Failed to stop speech recognition:", e);
+      }
     }
 
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
@@ -223,7 +282,7 @@ function SpeechHub() {
     });
   }
 
-  async function triggerAnalysis(file: File) {
+  async function triggerAnalysis(file: File, transcript?: string) {
     setAnalyzing(true);
     setHasReport(false);
 
@@ -231,6 +290,9 @@ function SpeechHub() {
       const formData = new FormData();
       formData.append("audio", file);
       formData.append("consent", "true");
+      if (transcript) {
+        formData.append("clientTranscript", transcript);
+      }
 
       const result = await analyzeAudioFn({ data: formData });
 
@@ -257,7 +319,7 @@ function SpeechHub() {
         if (scoreRef.current) {
           const obj = { v: 0 };
           animate(obj, {
-            v: result.overallScore,
+            v: reportData.overallScore,
             duration: 1400,
             ease: "outExpo",
             onUpdate: () => {
@@ -294,6 +356,15 @@ function SpeechHub() {
       console.error("Analysis API failed:", err);
       if (err.message?.includes("GEMINI_API_KEY")) {
         toast.error("Server Configuration Error: Gemini API key is missing on the server. Please add GEMINI_API_KEY to your env variables.");
+      } else if (err.message?.includes("Speech transcript is required")) {
+        const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+        if (!SpeechRecognition) {
+          toast.error("Speech Recognition is not supported by your browser (e.g. Firefox). Please use Google Chrome, Safari, or Microsoft Edge, or add GEMINI_API_KEY to your env variables.");
+        } else if (window.location.protocol !== "https:" && window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1") {
+          toast.error("Speech Recognition is blocked by browser security on unsecured HTTP connections. Please access the application via http://localhost:8080/ instead.");
+        } else {
+          toast.error("No speech transcript was captured. Please ensure microphone permissions are granted and speak clearly for at least 10 seconds.");
+        }
       } else {
         toast.error(err.message || "Failed to analyze speech. Please try again.");
       }
@@ -368,6 +439,13 @@ function SpeechHub() {
                 Data is processed strictly in-memory and deleted immediately (DPDP Act 2023 compliant).
               </label>
             </div>
+
+            {browserWarning && (
+              <div className="flex gap-2.5 rounded-lg border border-bad/30 bg-bad/5 p-3 text-xs w-full text-bad">
+                <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+                <div className="leading-snug">{browserWarning}</div>
+              </div>
+            )}
 
             <div className="h-px w-full bg-panel-border" />
 
@@ -449,7 +527,18 @@ function SpeechHub() {
           <div className="mb-6 flex items-end justify-between border-b border-panel-border/30 pb-4">
             <div>
               <div className="font-mono text-[11px] uppercase tracking-widest text-muted-foreground">03 · Report</div>
-              <h2 className="mt-1 text-xl font-semibold">Pronunciation analysis</h2>
+              <div className="mt-1 flex items-center gap-2">
+                <h2 className="text-xl font-semibold">Pronunciation analysis</h2>
+                {hasReport && report && (
+                  <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium border ${
+                    report.engine === "local" 
+                      ? "bg-accent-2/10 text-accent-2 border-accent-2/30 animate-pulse" 
+                      : "bg-good/10 text-good border-good/30"
+                  }`}>
+                    {report.engine === "local" ? "Acoustic Engine (Local)" : "Cloud AI"}
+                  </span>
+                )}
+              </div>
             </div>
             {hasReport && (
               <div className="font-mono text-[11px] text-muted-foreground">Session #LIVO-{score}X</div>
@@ -489,8 +578,16 @@ function SpeechHub() {
                   <Metric label="Completeness" value={report.metrics.completeness} />
                 </div>
                 <div className="rounded-lg border border-panel-border bg-background/30 p-4">
-                  <div className="font-mono text-[10px] uppercase tracking-widest text-accent-1 mb-1">Coach Feedback</div>
+                  <div className="font-mono text-[10px] uppercase tracking-widest text-accent-1 mb-1">
+                    {report.engine === "local" ? "Acoustic Engine Feedback" : "Coach Feedback"}
+                  </div>
                   <p className="text-xs leading-relaxed text-muted-foreground">{report.feedback}</p>
+                  {report.engine === "local" && (
+                    <div className="mt-2 text-[10px] text-muted-foreground/80 flex items-center gap-1">
+                      <Info className="h-3.5 w-3.5 shrink-0 text-accent-2" />
+                      <span>Local mode active due to high cloud traffic. Real-time transcription used.</span>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
