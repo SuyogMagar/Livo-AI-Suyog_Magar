@@ -1,0 +1,14 @@
+# Node.js
+node_modules/
+
+# Local Environment variables (Never push your API keys!)
+.env
+.env.local
+
+# TanStack Start & Vite build outputs
+.output/
+.tanstack/
+dist/
+
+# System files
+.DS_Store
