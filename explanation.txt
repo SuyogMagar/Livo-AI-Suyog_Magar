@@ -5,7 +5,7 @@
 1. WHAT IS IT?
 --------------
 We are building a web application where users can upload a short audio clip 
-(30 to 45 seconds) of themselves speaking English. 
+(10 to 45 seconds) of themselves speaking English. 
 The app will analyze their speech and show them:
 - An overall pronunciation score (e.g., 85%).
 - A word-by-word highlight of their pronunciation, pointing out exactly 
@@ -21,7 +21,7 @@ It must be deployed to a live public URL and follow India's DPDP Act
 - **Frontend & Backend**: Next.js (React) + Tailwind CSS (or Vanilla CSS).
   - Why? Next.js lets us build both a beautiful frontend and a secure 
     backend API in one project. It is extremely easy to deploy to Vercel.
-- **AI Engine (Pronunciation Scoring)**: Google Gemini API (1.5 Flash/Pro) or Whisper.
+- **AI Engine (Pronunciation Scoring)**: Google Gemini API (2.0 Flash/Pro) or Whisper.
   - Why? Gemini natively accepts audio files directly! We can send the 
     audio to Gemini and ask it to:
     1. Transcribe the speech.
@@ -40,7 +40,7 @@ It must be deployed to a live public URL and follow India's DPDP Act
 - **Step 2: Create the User Interface**
   Build a clean, premium dashboard where users can either drag-and-drop 
   an audio file or record it live using their microphone. We will add a 
-  timer to enforce the 30-45 seconds limit.
+  timer to enforce the 10-45 seconds limit.
 
 - **Step 3: Build the API Backend**
   Create an endpoint that receives the audio file, validates its length, 
